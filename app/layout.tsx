@@ -3,8 +3,8 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Oil Trading Ops",
-  description: "Demurrage calculator and client exposure tracker",
+  title: "Trading Ops",
+  description: "Oil trading mid-office: deals, positions, documents",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -14,13 +14,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <header className="topbar">
           <div className="brand">
             <span className="logo">⛽</span>
-            <span>Oil Trading Ops</span>
+            <span>Trading Ops</span>
           </div>
           <nav>
             <Link href="/">Dashboard</Link>
-            <Link href="/deliveries">Deliveries</Link>
-            <Link href="/clients">Clients</Link>
-            <Link href="/demurrage">Demurrage</Link>
+            <Link href="/deals">Deals</Link>
+            <Link href="/positions/counterparty">By Counterparty</Link>
+            <Link href="/positions/location">By Location</Link>
+            <Link href="/documents">Documents</Link>
+            <Link href="/master">Master Data</Link>
           </nav>
         </header>
         <main className="container">{children}</main>

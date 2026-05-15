@@ -1,8 +1,8 @@
 import { getDb } from "@/lib/db";
 import {
-  ClientRow, DeliveryRow,
-  accruedDemurrageUsd, agingBucket, cargoValue,
-  computeDemurrage, fmtUsd, inTransitValueUsd, invoiceTotal, outstandingUsd,
+  Deal, Loading, Payment, Doc,
+  dealMetrics, counterpartyExposure, locationPositions,
+  fmtUsd, fmtNum,
 } from "@/lib/calc";
 import Link from "next/link";
 
@@ -10,101 +10,76 @@ export const dynamic = "force-dynamic";
 
 export default function Dashboard() {
   const db = getDb();
-  const clients = db.prepare("SELECT * FROM clients ORDER BY name").all() as ClientRow[];
-  const deliveries = db.prepare("SELECT * FROM deliveries ORDER BY created_at DESC").all() as DeliveryRow[];
+  const deals = db.prepare("SELECT * FROM deals").all() as Deal[];
+  const loadings = db.prepare("SELECT * FROM deal_loadings").all() as Loading[];
+  const payments = db.prepare("SELECT * FROM payments").all() as Payment[];
+  const documents = db.prepare("SELECT * FROM documents").all() as Doc[];
+  const expo = counterpartyExposure();
+  const positions = locationPositions();
 
-  let totalAR = 0, totalInTransit = 0, totalAccrued = 0, totalCreditLimit = 0;
-  const buckets: Record<string, number> = { current: 0, "0-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
-
-  for (const d of deliveries) {
-    totalAR += outstandingUsd(d);
-    totalInTransit += inTransitValueUsd(d);
-    totalAccrued += accruedDemurrageUsd(d);
-    if (d.status === "invoiced") {
-      const b = agingBucket(d.due_date);
-      if (b in buckets) buckets[b] += outstandingUsd(d);
-    }
+  const open = deals.filter((d) => d.status === "open" || d.status === "draft");
+  const openValue = open.reduce((s, d) => s + d.price_usd_per_m3 * d.qty_m3, 0);
+  let totalOaInUse = 0, totalLoadedM3 = 0, totalRemainingM3 = 0;
+  for (const d of open) {
+    const m = dealMetrics(d, loadings.filter((l) => l.deal_id === d.id), payments.filter((p) => p.deal_id === d.id));
+    totalLoadedM3 += m.loadedQtyM3;
+    totalRemainingM3 += m.balanceQtyM3;
+    if (d.type === "SALE") totalOaInUse += m.oaInUseUsd;
   }
-  for (const c of clients) totalCreditLimit += c.credit_limit_usd;
 
-  // Per-client exposure rollup
-  const clientExposure = clients.map((c) => {
-    const dels = deliveries.filter((d) => d.client_id === c.id);
-    const ar = dels.reduce((s, d) => s + outstandingUsd(d), 0);
-    const inTransit = dels.reduce((s, d) => s + inTransitValueUsd(d), 0);
-    const demAccrued = dels.reduce((s, d) => s + accruedDemurrageUsd(d), 0);
-    const total = ar + inTransit;
-    const util = c.credit_limit_usd > 0 ? total / c.credit_limit_usd : 0;
-    return { client: c, ar, inTransit, demAccrued, total, util };
-  }).sort((a, b) => b.total - a.total);
+  const overLimit = expo.filter((x) => x.utilisation >= 1 && x.counterparty.allowed_oa_usd > 0);
+  const highUtil  = expo.filter((x) => x.utilisation >= 0.8 && x.utilisation < 1);
 
-  const overdue = deliveries.filter((d) => d.status === "invoiced" &&
-    outstandingUsd(d) > 0 &&
-    agingBucket(d.due_date) !== "current" && agingBucket(d.due_date) !== "not_due");
-
-  const recentDemurrage = deliveries
-    .map((d) => ({ d, calc: computeDemurrage(d) }))
-    .filter((x) => x.calc.amountUsd > 0)
-    .sort((a, b) => b.calc.amountUsd - a.calc.amountUsd)
-    .slice(0, 5);
+  const draftDocs = documents.filter((d) => d.status === "draft").length;
+  const unpaidInvoices = documents.filter((d) => d.doc_type !== "PFI" && d.status === "issued");
+  const unpaidAmount = unpaidInvoices.reduce((s, d) => s + Math.max(0, d.amount_usd - d.paid_amount_usd), 0);
 
   return (
     <>
       <h1>Dashboard</h1>
 
       <div className="grid grid-4">
-        <Kpi label="Accounts Receivable" value={fmtUsd(totalAR)} sub={`${deliveries.filter(d => d.status === "invoiced").length} open invoices`} />
-        <Kpi label="In-Transit / Delivered" value={fmtUsd(totalInTransit)} sub={`${deliveries.filter(d => d.status === "in_transit" || d.status === "delivered").length} trucks`} />
-        <Kpi label="Demurrage Accrued (Unbilled)" value={fmtUsd(totalAccrued)} sub="Pending recovery" />
-        <Kpi label="Total Credit Limits" value={fmtUsd(totalCreditLimit)} sub={`${clients.length} clients`} />
+        <Kpi label="Open Deals" value={String(open.length)} sub={`${fmtUsd(openValue)} notional`} />
+        <Kpi label="O/A In Use (Sales)" value={fmtUsd(totalOaInUse)} sub={`${overLimit.length} clients over limit`} />
+        <Kpi label="Open Position Loaded" value={`${fmtNum(totalLoadedM3, 0)} m³`} sub={`${fmtNum(totalRemainingM3, 0)} m³ remaining`} />
+        <Kpi label="Unpaid Invoices" value={fmtUsd(unpaidAmount)} sub={`${unpaidInvoices.length} open · ${draftDocs} draft docs`} />
       </div>
 
-      <h2>AR Aging</h2>
-      <div className="grid grid-4">
-        <Kpi label="Current" value={fmtUsd(buckets.current)} />
-        <Kpi label="0–30 overdue" value={fmtUsd(buckets["0-30"])} />
-        <Kpi label="31–60 overdue" value={fmtUsd(buckets["31-60"])} />
-        <Kpi label="61–90 / 90+ overdue" value={fmtUsd(buckets["61-90"] + buckets["90+"])} />
-      </div>
-
-      <h2>Client Exposure</h2>
+      <h2>Counterparty Exposure</h2>
       <div className="card" style={{ padding: 0 }}>
         <table>
           <thead>
             <tr>
-              <th>Client</th>
-              <th className="num">Credit Limit</th>
-              <th className="num">AR</th>
-              <th className="num">In Transit</th>
-              <th className="num">Demurrage</th>
-              <th className="num">Total Exposure</th>
+              <th>Counterparty</th>
+              <th className="num">Allowed O/A</th>
+              <th className="num">O/A in Use</th>
+              <th className="num">Remaining</th>
               <th>Utilisation</th>
+              <th className="num">Open Deals</th>
             </tr>
           </thead>
           <tbody>
-            {clientExposure.map((row) => {
-              const pct = Math.min(100, row.util * 100);
-              const cls = row.util >= 1 ? "red" : row.util >= 0.8 ? "amber" : "";
+            {expo.filter((x) => x.counterparty.allowed_oa_usd > 0 || x.oaInUseUsd > 0 || x.openDeals > 0)
+              .sort((a, b) => b.utilisation - a.utilisation)
+              .map((row) => {
+              const pct = Math.min(100, row.utilisation * 100);
+              const cls = row.utilisation >= 1 ? "red" : row.utilisation >= 0.8 ? "amber" : "";
               return (
-                <tr key={row.client.id}>
-                  <td><Link href={`/clients/${row.client.id}`}>{row.client.name}</Link>
-                    <div className="muted" style={{ fontSize: 11 }}>{row.client.country}</div>
-                  </td>
-                  <td className="num">{fmtUsd(row.client.credit_limit_usd)}</td>
-                  <td className="num">{fmtUsd(row.ar)}</td>
-                  <td className="num">{fmtUsd(row.inTransit)}</td>
-                  <td className="num">{fmtUsd(row.demAccrued)}</td>
-                  <td className="num"><strong>{fmtUsd(row.total)}</strong></td>
-                  <td style={{ minWidth: 160 }}>
+                <tr key={row.counterparty.id}>
+                  <td><Link href={`/master/counterparties/${row.counterparty.id}`}>{row.counterparty.name}</Link>
+                    <div className="muted" style={{ fontSize: 11 }}>{row.counterparty.country ?? ""}</div></td>
+                  <td className="num">{fmtUsd(row.counterparty.allowed_oa_usd)}</td>
+                  <td className="num">{fmtUsd(row.oaInUseUsd)}</td>
+                  <td className="num">{fmtUsd(row.remainingOaUsd)}</td>
+                  <td style={{ minWidth: 180 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-                      <span>{(row.util * 100).toFixed(0)}%</span>
-                      {row.util >= 1 && <span className="badge red">OVER LIMIT</span>}
-                      {row.util >= 0.8 && row.util < 1 && <span className="badge amber">HIGH</span>}
+                      <span>{(row.utilisation * 100).toFixed(0)}%</span>
+                      {row.utilisation >= 1 && <span className="badge red">OVER LIMIT</span>}
+                      {row.utilisation >= 0.8 && row.utilisation < 1 && <span className="badge amber">HIGH</span>}
                     </div>
-                    <div className="bar-track">
-                      <div className={`bar-fill ${cls}`} style={{ width: `${pct}%` }} />
-                    </div>
+                    <div className="bar-track"><div className={`bar-fill ${cls}`} style={{ width: `${pct}%` }} /></div>
                   </td>
+                  <td className="num">{row.openDeals}</td>
                 </tr>
               );
             })}
@@ -112,59 +87,39 @@ export default function Dashboard() {
         </table>
       </div>
 
-      <div className="grid grid-2" style={{ marginTop: 18 }}>
-        <div>
-          <h2>Overdue Invoices</h2>
-          <div className="card" style={{ padding: 0 }}>
-            {overdue.length === 0 ? <div className="empty">No overdue invoices ✓</div> : (
-              <table>
-                <thead><tr><th>Ref</th><th>Client</th><th>Due</th><th className="num">Outstanding</th><th>Aging</th></tr></thead>
-                <tbody>
-                  {overdue.map((d) => {
-                    const c = clients.find((x) => x.id === d.client_id);
-                    const b = agingBucket(d.due_date);
-                    return (
-                      <tr key={d.id}>
-                        <td><Link href={`/deliveries/${d.id}`}>{d.reference || `#${d.id}`}</Link></td>
-                        <td>{c?.name}</td>
-                        <td>{d.due_date?.slice(0,10)}</td>
-                        <td className="num">{fmtUsd(outstandingUsd(d))}</td>
-                        <td><span className={`badge ${b === "0-30" ? "amber" : "red"}`}>{b}</span></td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-
-        <div>
-          <h2>Top Demurrage Events</h2>
-          <div className="card" style={{ padding: 0 }}>
-            {recentDemurrage.length === 0 ? <div className="empty">No demurrage incurred</div> : (
-              <table>
-                <thead><tr><th>Ref</th><th>Client</th><th className="num">Days</th><th className="num">Amount</th><th>Status</th></tr></thead>
-                <tbody>
-                  {recentDemurrage.map(({ d, calc }) => {
-                    const c = clients.find((x) => x.id === d.client_id);
-                    return (
-                      <tr key={d.id}>
-                        <td><Link href={`/deliveries/${d.id}`}>{d.reference || `#${d.id}`}</Link></td>
-                        <td>{c?.name}</td>
-                        <td className="num">{calc.demurrageDays}</td>
-                        <td className="num">{fmtUsd(calc.amountUsd)}</td>
-                        <td>{d.demurrage_billed
-                          ? <span className="badge green">billed</span>
-                          : <span className="badge amber">unbilled</span>}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
+      <h2>Position by Location & Product</h2>
+      <div className="card" style={{ padding: 0 }}>
+        {positions.length === 0 ? <div className="empty">No positions yet.</div> : (
+          <table>
+            <thead>
+              <tr>
+                <th>Location</th><th>Product</th>
+                <th className="num">Purchased</th>
+                <th className="num">Sold</th>
+                <th className="num">Unsold</th>
+                <th className="num">Loaded (P)</th>
+                <th className="num">Loaded (S)</th>
+                <th className="num">Physical Bal.</th>
+                <th className="num">In Tank Unsold</th>
+              </tr>
+            </thead>
+            <tbody>
+              {positions.map((p) => (
+                <tr key={`${p.locationCode}-${p.productCode}`}>
+                  <td>{p.locationName} <span className="tag">{p.locationCode}</span></td>
+                  <td><span className={`badge ${p.productCode === "AGO" ? "amber" : p.productCode === "PMS" ? "purple" : "blue"}`}>{p.productCode}</span></td>
+                  <td className="num">{fmtNum(p.purchasedM3, 0)}</td>
+                  <td className="num">{fmtNum(p.soldM3, 0)}</td>
+                  <td className="num">{fmtNum(p.unsoldM3, 0)}</td>
+                  <td className="num">{fmtNum(p.loadedPurchM3, 0)}</td>
+                  <td className="num">{fmtNum(p.loadedSaleM3, 0)}</td>
+                  <td className="num"><strong>{fmtNum(p.physicalBalanceM3, 0)}</strong></td>
+                  <td className="num">{fmtNum(p.inTankUnsoldM3, 0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </>
   );

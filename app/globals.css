@@ -68,6 +68,7 @@ tbody tr:hover { background: rgba(255,255,255,0.03); }
 
 form.inline { display: grid; gap: 12px; }
 form .row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+form .row-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 form .row-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
 @media (max-width: 760px) { form .row { grid-template-columns: 1fr 1fr; } }
 label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
@@ -98,3 +99,40 @@ details summary { cursor: pointer; color: var(--accent); padding: 4px 0; }
 .muted { color: var(--muted); }
 .right { text-align: right; }
 .pill { font-size: 11px; padding: 2px 6px; background: var(--panel-2); border-radius: 4px; color: var(--muted); }
+
+.subnav { display: flex; gap: 6px; flex-wrap: wrap; margin: -8px 0 16px 0; }
+.subnav a { padding: 6px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 13px; }
+.subnav a:hover { border-color: var(--accent); text-decoration: none; }
+.subnav a.active { background: var(--accent); border-color: var(--accent); }
+
+.section { margin-bottom: 28px; }
+.section h3 { font-size: 13px; margin: 0 0 8px 0; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+.tag { display: inline-block; padding: 1px 6px; background: var(--panel-2); border-radius: 4px; font-size: 11px; font-family: ui-monospace, Menlo, monospace; }
+
+.row-actions { display: flex; gap: 8px; align-items: center; }
+
+/* Print styles for documents */
+@media print {
+  body { background: white !important; color: black !important; font-size: 11pt; }
+  .topbar, .no-print, button, nav, .subnav { display: none !important; }
+  .container { max-width: 100% !important; padding: 0 !important; }
+  .doc-page { padding: 0 !important; box-shadow: none !important; border: none !important; }
+}
+
+.doc-page {
+  background: white;
+  color: #111;
+  border-radius: 6px;
+  padding: 40px 48px;
+  max-width: 820px;
+  margin: 0 auto;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+}
+.doc-page h1 { color: #111; font-size: 22px; letter-spacing: 0.08em; }
+.doc-page table { color: #111; }
+.doc-page th { background: #f5f5f5; color: #555; }
+.doc-page td, .doc-page th { border-bottom: 1px solid #ddd; }
+.doc-block { margin-bottom: 18px; }
+.doc-block .label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+.doc-block .value { font-size: 13px; }
