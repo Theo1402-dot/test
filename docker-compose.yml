@@ -1,0 +1,10 @@
+services:
+  app:
+    build: .
+    image: trading-ops:latest
+    container_name: trading-ops
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data      # SQLite DB lives here, persists across restarts
+    restart: unless-stopped

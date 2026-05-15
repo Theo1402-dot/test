@@ -1,0 +1,9 @@
+node_modules
+.next
+.git
+data
+*.db
+*.db-shm
+*.db-wal
+README.md
+*-preview.pdf
