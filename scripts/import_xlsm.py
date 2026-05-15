@@ -159,22 +159,273 @@ def get_or_create_product(cur, code):
     return cur.lastrowid
 
 
-def main(xlsm_path):
-    if not os.path.exists(DB_PATH):
-        print(f"DB not found at {DB_PATH}. Boot the Next.js app once first so it creates the schema.")
-        sys.exit(1)
+def import_swaps(cur, wb):
+    if "BEIRA SWAPS" not in wb.sheetnames:
+        return 0
+    ws = wb["BEIRA SWAPS"]
+    cur.execute("SELECT id, code FROM products")
+    prod_by_code = {c: i for i, c in cur.fetchall()}
+    cur.execute("SELECT id FROM locations WHERE code='BEIRA'")
+    beira_id = (cur.fetchone() or [None])[0]
+    n = 0
+    for r in range(2, ws.max_row + 1):
+        deal_no = ws.cell(row=r, column=1).value
+        if not deal_no:
+            continue
+        cp_name = ws.cell(row=r, column=2).value
+        side_raw = (ws.cell(row=r, column=3).value or "").strip().upper()
+        side = "BUY" if side_raw in ("BUY", "PURCH", "PURCHASE") else "SELL"
+        prod_code = (ws.cell(row=r, column=4).value or "").strip().upper()
+        vessel = ws.cell(row=r, column=5).value
+        qty = to_num(ws.cell(row=r, column=6).value) or 0
+        swap_px = to_num(ws.cell(row=r, column=7).value)
+        mtm_px = to_num(ws.cell(row=r, column=8).value)
+        cp_id = get_or_create_counterparty(cur, cp_name) if cp_name else None
+        prod_id = prod_by_code.get(prod_code)
+        if not prod_id and prod_code:
+            prod_id = get_or_create_product(cur, prod_code)
+            prod_by_code[prod_code] = prod_id
+        if not prod_id:
+            continue
+        # Idempotent on swap_no
+        cur.execute("SELECT id FROM swaps WHERE swap_no=?", (str(deal_no),))
+        if cur.fetchone():
+            continue
+        cur.execute("""INSERT INTO swaps (swap_no, location_id, counterparty_id, side, product_id,
+                       vessel, qty_m3, swap_price_usd_per_m3, mtm_price_usd_per_m3)
+                       VALUES (?,?,?,?,?,?,?,?,?)""",
+                    (str(deal_no), beira_id, cp_id, side, prod_id,
+                     str(vessel) if vessel else None, abs(qty), swap_px, mtm_px))
+        n += 1
+    return n
 
+
+def import_mi_losses(cur, wb):
+    if "MI LOSSES" not in wb.sheetnames:
+        return 0
+    ws = wb["MI LOSSES"]
+    cur.execute("SELECT id, code FROM locations")
+    loc_by_code = {c: i for i, c in cur.fetchall()}
+    cur.execute("SELECT id, code FROM products")
+    prod_by_code = {c: i for i, c in cur.fetchall()}
+    n = 0
+    # Data starts at row 7 in the inspected workbook
+    for r in range(7, ws.max_row + 1):
+        loc = ws.cell(row=r, column=2).value
+        terminal = ws.cell(row=r, column=3).value
+        prod = ws.cell(row=r, column=4).value
+        qty = to_num(ws.cell(row=r, column=5).value)
+        if not loc or qty is None:
+            continue
+        loc_code = str(loc).upper().strip()
+        loc_id = loc_by_code.get(loc_code)
+        prod_code = str(prod).upper().strip() if prod else None
+        prod_id = prod_by_code.get(prod_code) if prod_code else None
+        if not prod_id and prod_code:
+            prod_id = get_or_create_product(cur, prod_code)
+            prod_by_code[prod_code] = prod_id
+        cur.execute("""INSERT INTO mi_losses (location_id, terminal_name, product_id, qty_m3, notes)
+                       VALUES (?,?,?,?,?)""",
+                    (loc_id, str(terminal) if terminal else None, prod_id, qty, "Imported from MI LOSSES sheet"))
+        n += 1
+    return n
+
+
+SCHEMA = r"""
+CREATE TABLE IF NOT EXISTS entities (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE,
+  legal_name TEXT NOT NULL, address TEXT, tax_id TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS banks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, entity_id INTEGER NOT NULL REFERENCES entities(id),
+  label TEXT NOT NULL, currency TEXT NOT NULL DEFAULT 'USD',
+  beneficiary TEXT NOT NULL, bank_name TEXT NOT NULL, bank_address TEXT,
+  swift TEXT, iban TEXT, account_no TEXT,
+  correspondent_bank TEXT, correspondent_swift TEXT,
+  is_default INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS counterparties (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
+  legal_name TEXT, country TEXT, address TEXT,
+  contact_name TEXT, contact_email TEXT, contact_phone TEXT,
+  allowed_oa_usd REAL NOT NULL DEFAULT 0, default_payment_term TEXT,
+  default_demurrage_usd_per_day REAL NOT NULL DEFAULT 0,
+  default_laytime_hours REAL NOT NULL DEFAULT 24, notes TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS frame_contracts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  counterparty_id INTEGER NOT NULL REFERENCES counterparties(id) ON DELETE CASCADE,
+  itt_deals INTEGER NOT NULL DEFAULT 0, fca_deals INTEGER NOT NULL DEFAULT 0,
+  ddu_deals INTEGER NOT NULL DEFAULT 0, truck_dem_usd_per_day REAL,
+  ppmt INTEGER NOT NULL DEFAULT 0, oa INTEGER NOT NULL DEFAULT 0,
+  sblc INTEGER NOT NULL DEFAULT 0, date_signed TEXT, expiry_date TEXT, notes TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS products (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL, density_kg_per_m3 REAL);
+CREATE TABLE IF NOT EXISTS locations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL, country TEXT, type TEXT);
+CREATE TABLE IF NOT EXISTS terminals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  location_id INTEGER NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+  name TEXT NOT NULL, operator TEXT, capacity_m3 REAL, UNIQUE(location_id, name));
+CREATE TABLE IF NOT EXISTS storage_agreements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  location_id INTEGER NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+  terminal_id INTEGER, counterparty_id INTEGER,
+  agreement_in_place INTEGER NOT NULL DEFAULT 0, kyc_clearance INTEGER NOT NULL DEFAULT 0,
+  cend_in_place INTEGER NOT NULL DEFAULT 0, due_dil_done INTEGER NOT NULL DEFAULT 0,
+  throughput_ago_pct REAL, throughput_pms_pct REAL,
+  fee_first_30d_usd_per_m3 REAL, fee_next_30d_usd_per_m3 REAL,
+  fh_parcels_usd_per_m3_per_mo REAL, agency_fee_usd_per_m3_per_mo REAL,
+  contract_expiry TEXT, renewal TEXT, notes TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS deals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, deal_no TEXT NOT NULL UNIQUE,
+  entity_id INTEGER NOT NULL REFERENCES entities(id),
+  counterparty_id INTEGER NOT NULL REFERENCES counterparties(id),
+  type TEXT NOT NULL CHECK (type IN ('PURCH','SALE')),
+  deal_date TEXT NOT NULL, product_id INTEGER NOT NULL REFERENCES products(id),
+  incoterm TEXT NOT NULL, location_id INTEGER REFERENCES locations(id),
+  beg_date TEXT, end_date TEXT,
+  price_usd_per_m3 REAL NOT NULL, qty_m3 REAL NOT NULL,
+  payment_term_text TEXT NOT NULL, payment_term_code TEXT,
+  oa_days INTEGER, oa_trigger TEXT,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('draft','open','closed','cancelled')),
+  due_date TEXT, sblc_id INTEGER, comments TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS deal_loadings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  deal_id INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+  nomination_date TEXT, loading_date TEXT, release_date TEXT,
+  arrival_date TEXT, departure_date TEXT,
+  qty_m3 REAL NOT NULL, truck_plate TEXT, vessel TEXT,
+  terminal_id INTEGER, destination TEXT, notes TEXT,
+  laytime_hours REAL, demurrage_usd_per_day REAL,
+  noic_route TEXT, noic_terminal TEXT,
+  noic_fee_usd REAL, noic_paid_usd REAL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  deal_id INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+  payment_date TEXT NOT NULL, amount_usd REAL NOT NULL,
+  direction TEXT NOT NULL CHECK (direction IN ('IN','OUT')),
+  reference TEXT, bank_id INTEGER, notes TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS securities (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  counterparty_id INTEGER NOT NULL REFERENCES counterparties(id) ON DELETE CASCADE,
+  type TEXT NOT NULL, reference TEXT, amount_usd REAL NOT NULL,
+  issue_date TEXT, expiry_date TEXT, lds_date TEXT, covering TEXT, notes TEXT);
+CREATE TABLE IF NOT EXISTS documents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  doc_type TEXT NOT NULL CHECK (doc_type IN ('PFI','FINAL_INVOICE','STORAGE_INVOICE')),
+  doc_no TEXT NOT NULL, deal_id INTEGER, storage_agreement_id INTEGER,
+  entity_id INTEGER NOT NULL REFERENCES entities(id),
+  counterparty_id INTEGER NOT NULL REFERENCES counterparties(id),
+  bank_id INTEGER, issue_date TEXT NOT NULL, due_date TEXT,
+  currency TEXT NOT NULL DEFAULT 'USD',
+  qty_m3 REAL, price_usd_per_m3 REAL, amount_usd REAL NOT NULL,
+  period_from TEXT, period_to TEXT, payment_terms_text TEXT, notes TEXT,
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','issued','paid','cancelled')),
+  paid_date TEXT, paid_amount_usd REAL NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(doc_type, doc_no));
+CREATE TABLE IF NOT EXISTS doc_sequences (
+  doc_type TEXT NOT NULL, entity_id INTEGER NOT NULL,
+  year INTEGER NOT NULL, seq INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (doc_type, entity_id, year));
+CREATE TABLE IF NOT EXISTS swaps (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, swap_no TEXT, swap_date TEXT,
+  entity_id INTEGER, counterparty_id INTEGER, location_id INTEGER,
+  side TEXT NOT NULL CHECK (side IN ('BUY','SELL')),
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  vessel TEXT, qty_m3 REAL NOT NULL,
+  swap_price_usd_per_m3 REAL, mtm_price_usd_per_m3 REAL, notes TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS mi_losses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, loss_date TEXT,
+  location_id INTEGER, terminal_id INTEGER, terminal_name TEXT,
+  product_id INTEGER, qty_m3 REAL NOT NULL, reference TEXT, notes TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+"""
+
+def ensure_schema(conn):
+    """Match db.ts so import can run before the Next.js app has booted."""
+    conn.executescript(SCHEMA)
+    # Idempotent column additions
+    for sql in (
+        "ALTER TABLE deal_loadings ADD COLUMN laytime_hours REAL",
+        "ALTER TABLE deal_loadings ADD COLUMN demurrage_usd_per_day REAL",
+        "ALTER TABLE deal_loadings ADD COLUMN noic_route TEXT",
+        "ALTER TABLE deal_loadings ADD COLUMN noic_terminal TEXT",
+        "ALTER TABLE deal_loadings ADD COLUMN noic_fee_usd REAL",
+        "ALTER TABLE deal_loadings ADD COLUMN noic_paid_usd REAL",
+    ):
+        try:
+            conn.execute(sql)
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e):
+                raise
+    conn.commit()
+
+
+def main(xlsm_path):
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA foreign_keys = ON")
+    ensure_schema(conn)
     cur = conn.cursor()
 
-    # Map entity code -> id
+    # Bootstrap entities (idempotent)
+    for code, legal_name, addr in [
+        ("MOCOH", "MOCOHSA", "Rue de la Corraterie 5-7, 1204 Geneva, Switzerland"),
+        ("MOCZAM", "MOCZAM LTD", "Maputo, Mozambique"),
+    ]:
+        cur.execute("INSERT OR IGNORE INTO entities (code, legal_name, address) VALUES (?,?,?)", (code, legal_name, addr))
     cur.execute("SELECT id, code FROM entities")
     entity_ids = {code: eid for eid, code in cur.fetchall()}
-    for code in ENTITY_SHEET_MAP:
-        if code not in entity_ids:
-            cur.execute("INSERT INTO entities (code, legal_name) VALUES (?, ?)", (code, code))
-            entity_ids[code] = cur.lastrowid
+
+    # Bootstrap locations from the incoterms we expect
+    for code, name, country, type_ in [
+        ("BEIRA","Beira","Mozambique","port"), ("MAPUTO","Maputo","Mozambique","port"),
+        ("MATOLA","Matola","Mozambique","port"), ("MSASA","Msasa (Harare)","Zimbabwe","inland"),
+        ("FERUKA","Feruka","Zimbabwe","inland"), ("DES","DES","Mozambique","port"),
+        ("LUSAKA","Lusaka","Zambia","inland"), ("MTWARA","Mtwara","Tanzania","port"),
+        ("TANGA","Tanga","Tanzania","port"), ("DAR","Dar es Salaam","Tanzania","port"),
+        ("GABORONE","Gaborone","Botswana","inland"), ("LUBUMBASHI","Lubumbashi","DRC","inland"),
+        ("MBAVUKU","Mbavuku","Zimbabwe","inland"), ("WB","Walvis Bay","Namibia","port"),
+    ]:
+        cur.execute("INSERT OR IGNORE INTO locations (code, name, country, type) VALUES (?,?,?,?)",
+                    (code, name, country, type_))
+
+    # Bootstrap products
+    for code, name, density in [
+        ("AGO","Automotive Gasoil",845), ("PMS","Premium Motor Spirit (Gasoline)",745),
+        ("JET","Jet A-1",800), ("COND","Condensate",720), ("VLSFO","Very Low Sulphur Fuel Oil",980),
+    ]:
+        cur.execute("INSERT OR IGNORE INTO products (code, name, density_kg_per_m3) VALUES (?,?,?)",
+                    (code, name, density))
+
+    # Bootstrap default bank per entity (so PFIs can be generated)
+    for code, beneficiary, bank, swift, iban, corr, corr_swift in [
+        ("MOCOH", "MOCOHSA", "ING BANK N.V., AMSTERDAM, LANCY/ GENEVA BRANCH",
+         "BBRUCHGTXXX", "CH64 0838 70000 0107152 1", "JP MORGAN CHASE NY", "CHASUS33XXX"),
+        ("MOCZAM", "MOCZAM LTD", "TBD", None, None, None, None),
+    ]:
+        ent_id = entity_ids.get(code)
+        if not ent_id:
+            continue
+        # Only insert if no banks for this entity yet
+        cur.execute("SELECT COUNT(*) FROM banks WHERE entity_id=?", (ent_id,))
+        if cur.fetchone()[0] == 0:
+            cur.execute("""INSERT INTO banks (entity_id, label, currency, beneficiary, bank_name,
+                bank_address, swift, iban, correspondent_bank, correspondent_swift, is_default)
+                VALUES (?,?,?,?,?,?,?,?,?,?,1)""",
+                (ent_id, f"{code} Default (USD)", "USD", beneficiary, bank, None,
+                 swift, iban, corr, corr_swift))
 
     print(f"Loading workbook {xlsm_path}…")
     wb = openpyxl.load_workbook(xlsm_path, data_only=True)
@@ -293,6 +544,12 @@ def main(xlsm_path):
             except Exception as e:
                 stats["errors"] += 1
                 print(f"    ! row {r} ({deal_no}): {e}")
+
+    # Swaps + MI losses
+    swap_n = import_swaps(cur, wb)
+    losses_n = import_mi_losses(cur, wb)
+    stats["swaps"] = swap_n
+    stats["mi_losses"] = losses_n
 
     conn.commit()
     conn.close()

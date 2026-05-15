@@ -108,8 +108,19 @@ export default function DealDetail({ params }: { params: { id: string } }) {
               {terminals.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </label>
-          <label style={{ gridColumn: "span 2" }}>Destination<input name="destination" /></label>
-          <label>&nbsp;<button type="submit">Add loading</button></label>
+          <label>Destination<input name="destination" /></label>
+          <label>Laytime (h) — for demurrage<input type="number" step="0.5" name="laytime_hours" placeholder={cp ? String(cp.default_laytime_hours) : ""} /></label>
+          <label>Demurrage ($/day)<input type="number" name="demurrage_usd_per_day" placeholder={cp ? String(cp.default_demurrage_usd_per_day) : ""} /></label>
+        </div>
+        <div className="row">
+          <label>NOIC route (e.g. Beira → Msasa)<input name="noic_route" /></label>
+          <label>NOIC terminal<input name="noic_terminal" placeholder="MSASA / FERUKA" /></label>
+          <label>NOIC fee ($)<input type="number" step="0.01" name="noic_fee_usd" /></label>
+          <label>NOIC paid ($)<input type="number" step="0.01" name="noic_paid_usd" /></label>
+        </div>
+        <div className="row-2">
+          <label>Notes<input name="notes" /></label>
+          <div style={{ alignSelf: "end" }}><button type="submit">Add loading</button></div>
         </div>
       </form>
 

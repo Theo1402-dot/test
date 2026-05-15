@@ -252,7 +252,55 @@ function init(db: Database.Database) {
       seq INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (doc_type, entity_id, year)
     );
+
+    -- Swaps (e.g. Beira swaps between trading entities)
+    CREATE TABLE IF NOT EXISTS swaps (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      swap_no TEXT,
+      swap_date TEXT,
+      entity_id INTEGER REFERENCES entities(id),
+      counterparty_id INTEGER REFERENCES counterparties(id),
+      location_id INTEGER REFERENCES locations(id),
+      side TEXT NOT NULL CHECK (side IN ('BUY','SELL')),
+      product_id INTEGER NOT NULL REFERENCES products(id),
+      vessel TEXT,
+      qty_m3 REAL NOT NULL,
+      swap_price_usd_per_m3 REAL,
+      mtm_price_usd_per_m3 REAL,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_swaps_counterparty ON swaps(counterparty_id);
+
+    -- MI Losses (measured / inventory losses)
+    CREATE TABLE IF NOT EXISTS mi_losses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      loss_date TEXT,
+      location_id INTEGER REFERENCES locations(id),
+      terminal_id INTEGER REFERENCES terminals(id),
+      terminal_name TEXT,
+      product_id INTEGER REFERENCES products(id),
+      qty_m3 REAL NOT NULL,
+      reference TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_losses_location ON mi_losses(location_id);
   `);
+
+  // Idempotent column additions for evolving schema. SQLite doesn't support
+  // IF NOT EXISTS on columns, so we try and ignore duplicate-column errors.
+  const tryAdd = (sql: string) => {
+    try { db.exec(sql); } catch (e: any) {
+      if (!String(e?.message ?? "").includes("duplicate column")) throw e;
+    }
+  };
+  tryAdd(`ALTER TABLE deal_loadings ADD COLUMN laytime_hours REAL`);
+  tryAdd(`ALTER TABLE deal_loadings ADD COLUMN demurrage_usd_per_day REAL`);
+  tryAdd(`ALTER TABLE deal_loadings ADD COLUMN noic_route TEXT`);
+  tryAdd(`ALTER TABLE deal_loadings ADD COLUMN noic_terminal TEXT`);
+  tryAdd(`ALTER TABLE deal_loadings ADD COLUMN noic_fee_usd REAL`);
+  tryAdd(`ALTER TABLE deal_loadings ADD COLUMN noic_paid_usd REAL`);
 
   if ((db.prepare("SELECT COUNT(*) c FROM entities").get() as any).c === 0) {
     seed(db);

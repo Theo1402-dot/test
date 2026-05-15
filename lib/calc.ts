@@ -54,6 +54,27 @@ export type Loading = {
   arrival_date: string | null; departure_date: string | null;
   qty_m3: number; truck_plate: string | null; vessel: string | null;
   terminal_id: number | null; destination: string | null; notes: string | null;
+  laytime_hours: number | null; demurrage_usd_per_day: number | null;
+  noic_route: string | null; noic_terminal: string | null;
+  noic_fee_usd: number | null; noic_paid_usd: number | null;
+};
+export type Swap = {
+  id: number; swap_no: string | null; swap_date: string | null;
+  entity_id: number | null; counterparty_id: number | null; location_id: number | null;
+  side: "BUY" | "SELL"; product_id: number; vessel: string | null;
+  qty_m3: number; swap_price_usd_per_m3: number | null; mtm_price_usd_per_m3: number | null;
+  notes: string | null;
+};
+export type MiLoss = {
+  id: number; loss_date: string | null;
+  location_id: number | null; terminal_id: number | null; terminal_name: string | null;
+  product_id: number | null; qty_m3: number;
+  reference: string | null; notes: string | null;
+};
+export type Security = {
+  id: number; counterparty_id: number; type: string; reference: string | null;
+  amount_usd: number; issue_date: string | null; expiry_date: string | null;
+  lds_date: string | null; covering: string | null; notes: string | null;
 };
 export type Payment = {
   id: number; deal_id: number; payment_date: string;
@@ -226,6 +247,16 @@ export function locationPositions(): LocationPosition[] {
   }
   return Array.from(buckets.values()).sort((a, b) =>
     a.locationCode.localeCompare(b.locationCode) || a.productCode.localeCompare(b.productCode));
+}
+
+// -------- Swap P&L --------
+
+export function swapMtm(s: Swap) {
+  const swapPx = s.swap_price_usd_per_m3 ?? 0;
+  const mtmPx = s.mtm_price_usd_per_m3 ?? 0;
+  // BUY side: gain if mtm > swap. SELL side: gain if swap > mtm.
+  const diff = s.side === "BUY" ? (mtmPx - swapPx) : (swapPx - mtmPx);
+  return round2(diff * s.qty_m3);
 }
 
 // -------- Demurrage (kept from earlier app) --------
