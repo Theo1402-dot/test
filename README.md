@@ -23,7 +23,39 @@ single-source-of-truth web app.
 
 ## Two ways to run it
 
-### 1 — Docker (easiest, no Node install required)
+### 1 — Get a public URL on your phone (Render, ~5 min, ~$8/mo)
+
+1. Push this repo to GitHub if you haven't already.
+2. Sign up at <https://render.com> (free account).
+3. Click **New** → **Blueprint** → connect your GitHub repo.
+4. Render reads `render.yaml` and offers to create:
+   - a Web service (Starter plan, $7/mo)
+   - a 1 GB persistent disk for the SQLite database ($1/mo)
+5. Click **Apply**. Wait 3–5 minutes for the first build.
+6. Open the URL Render gives you (something like `https://trading-ops-xyz.onrender.com`). Works on phone, anywhere.
+
+To import your historical workbook on Render:
+- Render Web Shell (in the dashboard) → upload the `.xlsm` file → run `python3 scripts/import_xlsm.py /tmp/workbook.xlsm`
+
+### 2 — Quick public URL from your laptop (free, temporary)
+
+If you don't want to deploy yet, use ngrok to expose `localhost:3000` to a public URL:
+
+```bash
+# Run the app locally first
+npm install && npm run dev
+
+# In a separate terminal, install ngrok (macOS):
+brew install ngrok
+# Or download from https://ngrok.com/download
+
+# Then expose port 3000:
+ngrok http 3000
+```
+
+ngrok prints a URL like `https://abc123.ngrok-free.app`. Open it on your phone. Free tier is fine for personal use; the URL stays alive only while ngrok is running on your laptop.
+
+### 3 — Docker (no Node install required)
 
 Install Docker Desktop from <https://www.docker.com/products/docker-desktop/>, then:
 
@@ -39,7 +71,7 @@ First build takes 1–2 minutes. Open <http://localhost:3000>.
 To stop: `Ctrl+C` in the terminal, or `docker compose down` from another shell.
 The SQLite database lives in `./data/` and persists across restarts.
 
-### 2 — Node.js (faster iteration)
+### 4 — Plain Node (fastest iteration)
 
 Needs Node 20+ and Python 3 with `openpyxl` (only for the importer).
 
@@ -52,6 +84,8 @@ npm run dev
 ```
 
 Open <http://localhost:3000>. The DB is created in `./data/ops.db` on first request and seeded with a few demo records.
+
+To make it reachable from your phone on the same WiFi: `npm run dev -- -H 0.0.0.0` then on your phone open `http://<laptop-IP>:3000`.
 
 ## Importing historical data
 
