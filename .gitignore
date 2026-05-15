@@ -1,0 +1,9 @@
+node_modules
+.next
+out
+*.db
+*.db-journal
+.env*.local
+.DS_Store
+next-env.d.ts
+data/
