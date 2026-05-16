@@ -208,22 +208,27 @@ def upgrade(src: str, dst: str) -> None:
         mx = mx[:sd_match.start()] + new_sd + mx[sd_match.end():]
     files[mac_path] = mx.encode("utf-8")
 
-    # ----- 5. Print areas on Invoice + Annex via workbook-level defined names -----
+    # ----- 5. Print areas on Invoice + Annex: skip the nav row at row 2 -----
     wb_path = "xl/workbook.xml"
     wbx = files[wb_path].decode("utf-8")
-    if '_xlnm.Print_Area' not in wbx:
-        # Find existing <definedNames>... or insert before <bookViews> / <sheets>.
-        pa = (
-            '<definedNames>'
-            '<definedName name="_xlnm.Print_Area" localSheetId="2">Invoice!$B$1:$I$50</definedName>'
-            '<definedName name="_xlnm.Print_Area" localSheetId="3">Annex!$B$1:$K$62</definedName>'
-            '</definedNames>'
-        )
+    # Force-update any existing Invoice / Annex Print_Area defined names so
+    # they start at row 3.  Sheet indices: Invoice=2, Annex=3 (0-based, from
+    # workbook.xml <sheets> order).
+    wbx = re.sub(
+        r'(<definedName name="_xlnm\.Print_Area" localSheetId="2">)[^<]*(</definedName>)',
+        r'\1Invoice!$B$3:$J$52\2', wbx)
+    wbx = re.sub(
+        r'(<definedName name="_xlnm\.Print_Area" localSheetId="3">)[^<]*(</definedName>)',
+        r'\1Annex!$B$3:$K$62\2', wbx)
+    # Insert print areas if they didn't exist at all.
+    if 'name="_xlnm.Print_Area" localSheetId="2"' not in wbx:
+        pa_inv = '<definedName name="_xlnm.Print_Area" localSheetId="2">Invoice!$B$3:$J$52</definedName>'
+        pa_ann = '<definedName name="_xlnm.Print_Area" localSheetId="3">Annex!$B$3:$K$62</definedName>'
         if '<definedNames>' in wbx:
-            wbx = wbx.replace('<definedNames>', '<definedNames>' + pa[len('<definedNames>'):-len('</definedNames>')])
+            wbx = wbx.replace('<definedNames>', '<definedNames>' + pa_inv + pa_ann)
         else:
-            wbx = wbx.replace('<sheets>', pa + '<sheets>')
-        files[wb_path] = wbx.encode("utf-8")
+            wbx = wbx.replace('<sheets>', '<definedNames>' + pa_inv + pa_ann + '</definedNames><sheets>')
+    files[wb_path] = wbx.encode("utf-8")
 
     # ----- write -----
     with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:

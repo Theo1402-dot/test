@@ -67,7 +67,7 @@ def make_button_xml(macro: str, label: str, color: str,
       </a:p>
     </xdr:txBody>
   </xdr:sp>
-  <xdr:clientData/>
+  <xdr:clientData fPrintsWithSheet="0"/>
 </xdr:twoCellAnchor>'''
 
 
