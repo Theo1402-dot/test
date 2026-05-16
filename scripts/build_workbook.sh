@@ -14,19 +14,21 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 SRC="$REPO/workbook/MOCOH_DEMURRAGE_2026.xlsm"
-OUT="$REPO/workbook/MOCOH_DEMURRAGE_2026_v5.xlsm"
+OUT="$REPO/workbook/MOCOH_DEMURRAGE_2026_v6.xlsm"
 TMP1="$(mktemp --suffix=.xlsm)"
 TMP2="$(mktemp --suffix=.xlsm)"
 TMP3="$(mktemp --suffix=.xlsm)"
 TMP4="$(mktemp --suffix=.xlsm)"
-trap 'rm -f "$TMP1" "$TMP2" "$TMP3" "$TMP4"' EXIT
+TMP5="$(mktemp --suffix=.xlsm)"
+trap 'rm -f "$TMP1" "$TMP2" "$TMP3" "$TMP4" "$TMP5"' EXIT
 
 python3 "$HERE/upgrade_demurrage_xml.py"    "$SRC"  "$TMP1"
 python3 "$HERE/upgrade_v4_xml.py"           "$TMP1" "$TMP2"
 python3 "$HERE/upgrade_v5_xml.py"           "$TMP2" "$TMP3"
-python3 "$HERE/inject_vba.py"               "$TMP3" "$TMP4" \
+python3 "$HERE/upgrade_v6_xml.py"           "$TMP3" "$TMP4"
+python3 "$HERE/inject_vba.py"               "$TMP4" "$TMP5" \
     --module Module1="$REPO/workbook/Module1.bas" \
     --module ThisWorkbook="$REPO/workbook/ThisWorkbook.cls"
-python3 "$HERE/add_invoice_buttons.py"      "$TMP4" "$OUT"
+python3 "$HERE/add_invoice_buttons.py"      "$TMP5" "$OUT"
 
 echo "wrote $OUT"
