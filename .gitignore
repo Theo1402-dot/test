@@ -7,3 +7,4 @@ out
 .DS_Store
 next-env.d.ts
 data/
+scripts/__pycache__/

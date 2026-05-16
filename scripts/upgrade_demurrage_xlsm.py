@@ -332,22 +332,22 @@ def upgrade(src: str, dst: str) -> None:
     company["D31"].value = "(awaiting Rubis Energy email)"
     company["D32"].value = "(awaiting Lake Petroleum email)"
 
-    # 2) Invoice mailto with To + Cc + Body, plus replace the broken
-    #    PDF button with clear no-macro print instructions.
+    # 2) Invoice: macro-driven buttons (the VBA is injected separately).
+    #    Remove the body-preview cells from the printed invoice -- the body
+    #    is generated inside Outlook by the EmailClaim macro, not shown
+    #    on the sheet.
     inv = wb["Invoice"]
-    inv["B36"].value = build_mailto_formula()
-    inv["B38"].value = "Email body preview (for reference; the link above pre-fills it):"
-    # B39 already has a working body formula; keep it.
+    inv["B36"].value = "Email Claim"           # button label -- macro: EmailClaim
+    inv["B36"].font = Font(bold=True, size=12, color="FFFFFF")
+    inv["B36"].fill = PatternFill("solid", fgColor="1F4E79")
+    inv["B36"].alignment = Alignment(horizontal="center", vertical="center")
+    inv["B38"].value = None
+    inv["B39"].value = None
 
-    # The old "📄 Publish PDF (assign macro: PublishInvoicePDF)" button is
-    # broken unless the user installs the VBA.  Replace with a working flow.
-    inv["E36"].value = (
-        "PDF: hold Ctrl, click both the Invoice and Annex tabs, then "
-        "Ctrl+P -> Microsoft Print to PDF -> Save.  "
-        "(After installing the VBA, the EmailClaim macro can do this in one click.)"
-    )
-    inv["E36"].font = Font(bold=True, color="1F4E79")
-    inv["E36"].alignment = Alignment(wrap_text=True, vertical="center")
+    inv["E36"].value = "Publish PDF"           # button label -- macro: PublishInvoicePDF
+    inv["E36"].font = Font(bold=True, size=12, color="FFFFFF")
+    inv["E36"].fill = PatternFill("solid", fgColor="047857")
+    inv["E36"].alignment = Alignment(horizontal="center", vertical="center")
 
     # 3) Print areas + page setup for Invoice and Annex.
     for name, area in (("Invoice", "B1:I50"), ("Annex", "B1:K62")):
