@@ -1,0 +1,8 @@
+{greeting},
+
+Invoice {claim_no} for USD {amount_usd:,.2f} is now {days_overdue} days overdue. We need payment confirmation this week to avoid escalation to management.
+
+Re-attached.
+
+Regards,
+{signature}

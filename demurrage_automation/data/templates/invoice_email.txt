@@ -1,0 +1,17 @@
+{greeting},
+
+Please find attached our demurrage invoice {claim_no} covering deal {deal_no}.
+
+  Period      : {period_from} → {period_to}
+  Trips       : {num_trips}
+  Amount due  : USD {amount_usd:,.2f}
+  Due date    : {due_date}
+
+Per-trip detail is in the annex. Payment instructions:
+
+{bank_block}
+
+Please confirm receipt and let me know if you have any questions.
+
+Best regards,
+{signature}

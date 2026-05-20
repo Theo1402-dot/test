@@ -1,0 +1,8 @@
+{greeting},
+
+A gentle reminder that invoice {claim_no} for USD {amount_usd:,.2f} fell due on {due_date} ({days_overdue} days ago). Could you confirm payment status?
+
+Invoice re-attached for convenience.
+
+Best regards,
+{signature}

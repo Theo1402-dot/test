@@ -1,0 +1,8 @@
+{greeting},
+
+Invoice {claim_no} (USD {amount_usd:,.2f}) is now {days_overdue} days past due. Please advise expected payment date by return.
+
+Re-attached.
+
+Regards,
+{signature}

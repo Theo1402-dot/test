@@ -382,21 +382,26 @@ def read_company(wb: Workbook | None = None) -> Company:
 
 
 def _resolve_claim_no(ws: Worksheet, row: int) -> Optional[str]:
-    """Read the claim_no for `row`, resolving the workbook's auto-formula.
+    """Read the claim_no for `row`, resolving Claims!B in any openpyxl mode.
 
     Existing Claims!B cells hold a structured formula
         =IF(Claims[[#This Row],[Deal No.]]="","", ...&"-DEM")
-    so a plain cell read returns the formula string when the workbook is opened
-    with data_only=False. We compute the expected value from column D
-    (Deal No.) so matching works regardless of openpyxl mode.
+    that resolves to "{D}-DEM". openpyxl shows us either the formula string
+    (data_only=False), the cached computed value (data_only=True, fresh from
+    Excel), or None (data_only=True after openpyxl saved the file — the
+    cached values get stripped). We treat the deal-no column as the source of
+    truth: if D is set, the claim_no is "{D}-DEM" regardless of what B
+    contains. This keeps lookups stable across all three modes.
     """
     raw = _cell(ws, row, cfg.CLAIMS["claim_no"]).value
-    if isinstance(raw, str) and raw.startswith("="):
-        deal = _cell(ws, row, cfg.CLAIMS["deal_no"]).value
-        if deal in (None, ""):
-            return None
-        return f"{deal}-DEM"
-    return _coerce_str(raw)
+    # If B holds a literal that doesn't look like a formula or a header, use it.
+    if isinstance(raw, str) and raw and not raw.startswith("="):
+        return raw.strip() or None
+    # Otherwise reconstruct from the deal number.
+    deal = _cell(ws, row, cfg.CLAIMS["deal_no"]).value
+    if deal in (None, ""):
+        return None
+    return f"{deal}-DEM"
 
 
 def _find_total_row(ws: Worksheet) -> Optional[int]:
