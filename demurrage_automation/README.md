@@ -11,6 +11,17 @@ cp .env.example .env               # edit MANAGEMENT_CC, EMAIL_SIGNATURE if need
 pytest                             # smoke tests
 ```
 
+### PDF rendering dependency
+
+`demurrage-draft` uses the existing Invoice + Annex template to produce a PDF:
+
+- **Windows**: drives Excel via `xlwings` (install with `pip install -e ".[windows]"`).
+- **Linux / macOS**: LibreOffice headless. You need the **calc** module — `libreoffice-core` alone won't load `.xlsm` files. On Debian/Ubuntu:
+
+  ```bash
+  sudo apt-get install libreoffice-calc poppler-utils   # poppler-utils only needed for the PDF-content tests
+  ```
+
 ## Daily flow (target state, M1–M8)
 
 | Step | Command | Lands in |
