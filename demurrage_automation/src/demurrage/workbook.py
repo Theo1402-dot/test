@@ -256,8 +256,10 @@ def read_claims(wb: Workbook | None = None) -> list[Claim]:
         ws = wb[cfg.SHEET_CLAIMS]
         out: list[Claim] = []
         for r in range(cfg.CLAIMS_FIRST_DATA_ROW, ws.max_row + 1):
-            claim_no = _coerce_str(_cell(ws, r, cfg.CLAIMS["claim_no"]).value)
+            claim_no = _resolve_claim_no(ws, r)
             if not claim_no:
+                continue
+            if claim_no.lower() == "total":  # the summary row, not a real claim
                 continue
             out.append(
                 Claim(
@@ -379,19 +381,72 @@ def read_company(wb: Workbook | None = None) -> Company:
 # ---------------------------------------------------------------------------
 
 
-def _next_claim_row(ws: Worksheet) -> int:
-    """First row in the Claims data block that has no claim_no."""
+def _resolve_claim_no(ws: Worksheet, row: int) -> Optional[str]:
+    """Read the claim_no for `row`, resolving the workbook's auto-formula.
+
+    Existing Claims!B cells hold a structured formula
+        =IF(Claims[[#This Row],[Deal No.]]="","", ...&"-DEM")
+    so a plain cell read returns the formula string when the workbook is opened
+    with data_only=False. We compute the expected value from column D
+    (Deal No.) so matching works regardless of openpyxl mode.
+    """
+    raw = _cell(ws, row, cfg.CLAIMS["claim_no"]).value
+    if isinstance(raw, str) and raw.startswith("="):
+        deal = _cell(ws, row, cfg.CLAIMS["deal_no"]).value
+        if deal in (None, ""):
+            return None
+        return f"{deal}-DEM"
+    return _coerce_str(raw)
+
+
+def _find_total_row(ws: Worksheet) -> Optional[int]:
+    """Locate the 'Total' summary row in Claims (B column = 'Total'), if any."""
     col = cfg.CLAIMS["claim_no"]
+    for r in range(cfg.CLAIMS_FIRST_DATA_ROW, ws.max_row + 1):
+        val = _cell(ws, r, col).value
+        if isinstance(val, str) and val.strip().lower() == "total":
+            return r
+    return None
+
+
+def _next_claim_row(ws: Worksheet) -> int:
+    """First empty Claims row. If a 'Total' row exists, insert above it (shifting
+    it down by one) so the summary stays at the bottom of the table.
+    """
+    col = cfg.CLAIMS["claim_no"]
+    total_row = _find_total_row(ws)
+    if total_row is not None:
+        ws.insert_rows(total_row)
+        return total_row
     for r in range(cfg.CLAIMS_FIRST_DATA_ROW, ws.max_row + 2):
         if _cell(ws, r, col).value in (None, ""):
             return r
     return ws.max_row + 1
 
 
+def _refresh_claims_total(ws: Worksheet) -> None:
+    """Re-point the Total row's # Trips and Amount columns at a SUM over the
+    populated claim rows above. Idempotent; written as Excel formulas so it
+    survives openpyxl's cached-value stripping and works whether the
+    underlying claim rows carry literals (Python-written) or COUNTIF/SUMIF
+    formulas (workbook-built).
+    """
+    total_row = _find_total_row(ws)
+    if total_row is None:
+        return
+    first = cfg.CLAIMS_FIRST_DATA_ROW
+    last = total_row - 1
+    if last < first:
+        return
+    trips_col = cfg.CLAIMS["num_trips"]      # I
+    amount_col = cfg.CLAIMS["amount_usd"]    # J
+    _cell(ws, total_row, trips_col).value = f"=SUM({trips_col}{first}:{trips_col}{last})"
+    _cell(ws, total_row, amount_col).value = f"=SUM({amount_col}{first}:{amount_col}{last})"
+
+
 def _find_claim_row(ws: Worksheet, claim_no: str) -> Optional[int]:
-    col = cfg.CLAIMS["claim_no"]
     for r in range(cfg.CLAIMS_FIRST_DATA_ROW, ws.max_row + 1):
-        if _coerce_str(_cell(ws, r, col).value) == claim_no:
+        if _resolve_claim_no(ws, r) == claim_no:
             return r
     return None
 
@@ -451,6 +506,7 @@ def write_claims(wb: Workbook, drafts: list[dict]) -> list[tuple[str, str]]:
                 action="create claim",
             )
 
+    _refresh_claims_total(ws)
     _expand_table(ws, cfg.SHEET_CLAIMS)
     return actions
 
