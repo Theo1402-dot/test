@@ -1,0 +1,16 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+outputs/logs/*.log
+outputs/invoices/*.pdf
+outputs/eml/*.eml
+outputs/eml/*.msg
+# Keep the folder structure even if empty
+!outputs/logs/.gitkeep
+!outputs/invoices/.gitkeep
+!outputs/eml/.gitkeep
+*.xlsx#
+~$*.xlsm
+.DS_Store

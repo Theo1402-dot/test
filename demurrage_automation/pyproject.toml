@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "demurrage"
+version = "0.1.0"
+description = "MOCOH SA demurrage automation: trips -> claims -> invoices -> Outlook drafts -> dunning."
+requires-python = ">=3.11"
+authors = [{ name = "MOCOH SA Operations" }]
+dependencies = [
+    "openpyxl==3.1.5",
+    "pydantic==2.9.2",
+    "pyyaml>=6.0,<7",
+    "python-dotenv==1.0.1",
+    "typer==0.12.5",
+]
+
+[project.optional-dependencies]
+windows = [
+    "pywin32==306; sys_platform == 'win32'",
+    "xlwings==0.32.2; sys_platform == 'win32'",
+]
+dev = [
+    "pytest==8.3.3",
+]
+
+[project.scripts]
+demurrage-import = "demurrage.cli.import_trips:app"
+demurrage-build-claims = "demurrage.cli.build_claims:app"
+demurrage-draft = "demurrage.cli.draft_invoices:app"
+demurrage-dun = "demurrage.cli.run_dunning:app"
+demurrage-refresh = "demurrage.cli.refresh_dashboard:app"
+demurrage-reconcile = "demurrage.cli.reconcile:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"

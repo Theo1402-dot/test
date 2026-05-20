@@ -1,0 +1,41 @@
+# Counterparty AR contacts. Edit this file; no code change required.
+# `primary` -> Outlook To: line. `cc` -> Outlook CC: line.
+# Names in front of <email@x> are stripped before sending.
+# If primary is empty or contains "[TBD]", drafting/dunning skip the claim and warn.
+
+Rubis Energy Zambia:
+  primary:
+    - "Kelvin Chongo <kelvin.chongo@rubiszambia.com>"
+    - "Gift Dauchi <gift.dauchi@rubiszambia.com>"
+    - "Levy Chinkoni <levy.chinkoni@rubiszambia.com>"
+    - "Dorothy Rukenya <dorothy.rukenya@rubiskenya.com>"
+  cc: []
+  greeting: "Dear Rubis team"
+
+Reliance Energy Zambia:
+  primary:
+    - "Ismail <md@relianceenergy-zm.com>"
+    - "Reliance Energy Zambia Limited <sales@relianceenergy-zm.com>"
+  cc: []
+  greeting: "Dear Reliance team"
+
+Lake Petroleum Zambia:
+  primary:
+    - "bhanu.pratap@lakeoilgroup.com"
+    - "Jitendra Kodali <jitendra.kodali@lakeoilgroup.com>"
+  cc: []
+  greeting: "Dear Lake Petroleum team"
+
+ARV Energy:
+  primary:
+    - "Rishabh Gupta <rishabh.gupta@karan.ae>"
+    - "Puneet Khanchandani <Puneet.Khanchandani@karan.ae>"
+  cc: []
+  greeting: "Dear ARV Energy team"
+
+La Grace De Dieu Avec Nous Sarl:
+  primary:
+    - "bondodelphin@lagraddie.com"
+    - "bondodelphin@yahoo.fr"
+  cc: []
+  greeting: "Dear La Grace De Dieu team"
